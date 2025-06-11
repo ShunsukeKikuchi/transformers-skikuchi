@@ -1417,7 +1417,7 @@ class BambaForCausalLM(BambaPreTrainedModel, GenerationMixin):
         logits = self.lm_head(hidden_states[:, slice_indices, :])
 
         loss = None
-        if labels is not None:
+        if labels is not None or kwargs.get("shift_labels", None) is not None:
             loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
             if self.z_loss_coefficient > 0:
                 # Type-match loss, but avoid upcasting large logits tensor until after it's been reduced on dim -1
