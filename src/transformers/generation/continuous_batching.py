@@ -174,6 +174,15 @@ class PagedAttentionCache(Cache):
         )
         self.num_hidden_layers = config.num_hidden_layers
 
+        self.sliding_window = getattr(generation_config, "sliding_window", None)
+        if self.sliding_window is not None:
+            if self.sliding_window <= 0:
+                raise ValueError(f"sliding_window must be positive, got {self.sliding_window}")
+            self.is_sliding_window = True
+            logger.info(f"Sliding window attention enabled with window size: {self.sliding_window}")
+        else:
+            self.is_sliding_window = False
+
         # Calculate optimal block size and number if not provided
         num_blocks = getattr(generation_config, "num_blocks", None)
         block_size = getattr(generation_config, "block_size", None)
@@ -240,6 +249,10 @@ class PagedAttentionCache(Cache):
         """Returns the block table for a request."""
         return self._block_tables.get(request_id, [])
 
+    def get_sliding_window_size(self) -> Optional[int]:
+        """Returns the sliding window size if sliding window is enabled, None otherwise."""
+        return self.sliding_window if self.is_sliding_window else None
+
     @traced
     def _get_physical_indices(self, state: RequestState, logical_indices: List[int]) -> List[int]:
         """
@@ -280,6 +293,28 @@ class PagedAttentionCache(Cache):
 
         return physical_indices
 
+    def _get_sliding_window_indices(self, logical_indices: List[int], current_seq_len: int) -> List[int]:
+        """
+        Apply sliding window logic to logical indices.
+
+        Args:
+            logical_indices: The logical indices to apply sliding window to
+            current_seq_len: Current sequence length
+
+        Returns:
+            List of logical indices within the sliding window
+        """
+        if not self.is_sliding_window:
+            return logical_indices
+
+        # Calculate the sliding window start position
+        window_start = max(0, current_seq_len - self.sliding_window)
+
+        # Filter indices to only include those within the sliding window
+        windowed_indices = [idx for idx in logical_indices if idx >= window_start]
+
+        return windowed_indices
+
     @traced
     def update(
         self,
@@ -290,7 +325,6 @@ class PagedAttentionCache(Cache):
         write_index,
         **kwargs,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        # Reshape cache for easier indexing
         total_slots = self.num_blocks * self.block_size
         k_cache_flat = self.key_cache[layer_idx].view(self.num_key_value_heads, total_slots, self.head_dim)
         v_cache_flat = self.value_cache[layer_idx].view(self.num_key_value_heads, total_slots, self.head_dim)
@@ -908,21 +942,41 @@ class ContinuousBatchProcessor:
             past_length = state.position_offset
             query_length = len(next_input_ids)
             key_length = query_length + past_length
-            cache_index = list(range(key_length))
 
-            positions_to_add = cache_index[past_length:]
-            read_indices = self.cache._get_physical_indices(state, cache_index)
-            write_indices = read_indices[-query_length:]
+            # The absolute positions of the tokens being processed. These are the positions sent to the model.
+            positions_to_add = list(range(past_length, key_length))
+
+            if self.cache.is_sliding_window:
+                # When using sliding window, we only attend to the last `sliding_window` tokens.
+                attention_window_start = max(0, key_length - self.cache.sliding_window)
+                attention_window_indices = list(range(attention_window_start, key_length))
+
+                # The cache itself is treated as a circular buffer of size `sliding_window`.
+                # We need to map the logical positions from the attention window to the circular buffer positions.
+                circular_cache_indices = [i % self.cache.sliding_window for i in attention_window_indices]
+
+                # Now, get the physical locations for these circular cache indices.
+                read_indices = self.cache._get_physical_indices(state, circular_cache_indices)
+                write_indices = read_indices[-query_length:]
+
+                # The key/value sequence length for attention is the size of the attention window.
+                kv_length_for_attention = len(attention_window_indices)
+            else:
+                # Without sliding window, we attend to the whole sequence.
+                attention_window_indices = list(range(key_length))
+                read_indices = self.cache._get_physical_indices(state, attention_window_indices)
+                write_indices = read_indices[-query_length:]
+                kv_length_for_attention = key_length
 
             position_ids.extend(positions_to_add)
             read_index.extend(read_indices)
             write_index.extend(write_indices)
             cumulative_seqlens_q.append(cumulative_seqlens_q[-1] + query_length)
-            cumulative_seqlens_k.append(cumulative_seqlens_k[-1] + key_length)
+            cumulative_seqlens_k.append(cumulative_seqlens_k[-1] + kv_length_for_attention)
             if len(state.remaining_prompt_ids) == 0:
                 logits_indices.append(cumulative_seqlens_q[-1] - 1)
             self.max_seqlen_q = max(self.max_seqlen_q, query_length)
-            self.max_seqlen_k = max(self.max_seqlen_k, key_length)
+            self.max_seqlen_k = max(self.max_seqlen_k, kv_length_for_attention)
             state.position_offset += query_length
 
         logger.warning(
