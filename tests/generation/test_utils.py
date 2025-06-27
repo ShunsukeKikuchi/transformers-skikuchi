@@ -124,6 +124,7 @@ VLM_CLASS_NAMES = [
     "idefics2",
     "idefics3",
     "mllama",
+    "molmo",
     "paligemma",
     "emu3",
     "gotocr2",
