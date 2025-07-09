@@ -662,7 +662,9 @@ class T5LABlock(GradientCheckpointingLayer):
         self.is_decoder = config.is_decoder
         self.layer = nn.ModuleList()
         self.layer.append(
-            T5LALayerSelfAttention(config, has_relative_attention_bias=has_relative_attention_bias, layer_idx=layer_idx)
+            T5LALayerSelfAttention(
+                config, has_relative_attention_bias=has_relative_attention_bias, layer_idx=layer_idx
+            )
         )
         if self.is_decoder:
             self.layer.append(T5LALayerCrossAttention(config, layer_idx=layer_idx))
@@ -898,7 +900,10 @@ class T5LAStack(T5LAPreTrainedModel):
         self.is_decoder = config.is_decoder
 
         self.block = nn.ModuleList(
-            [T5LABlock(config, has_relative_attention_bias=bool(i == 0), layer_idx=i) for i in range(config.num_layers)]
+            [
+                T5LABlock(config, has_relative_attention_bias=bool(i == 0), layer_idx=i)
+                for i in range(config.num_layers)
+            ]
         )
         self.final_layer_norm = T5LALayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
@@ -1565,21 +1570,22 @@ class T5LAModel(T5LAPreTrainedModel):
             encoder_attentions=encoder_outputs.attentions,
         )
 
-        
+
 class LookAheadHeads(nn.Module):
-  def __init__(self, config: T5LAConfig):
-    super().__init__()
-    self.heads = nn.ModuleList(
-      [nn.Linear(config.d_model, config.vocab_size, bias=False) for _ in range(config.lookahead_size + 1)])
+    def __init__(self, config: T5LAConfig):
+        super().__init__()
+        self.heads = nn.ModuleList(
+            [nn.Linear(config.d_model, config.vocab_size, bias=False) for _ in range(config.lookahead_size + 1)]
+        )
 
-  def forward(self, x):
-    # ModuleList can act as an iterable, or be indexed using ints
-    # Apply each head to the shared features
-    logits = [head(x) for head in self.heads]
+    def forward(self, x):
+        # ModuleList can act as an iterable, or be indexed using ints
+        # Apply each head to the shared features
+        logits = [head(x) for head in self.heads]
 
-    # Stack logits along a new dimension to create a tensor of shape [batch_size, num_heads, output_size]
-    logits = torch.stack(logits, dim=1)
-    return logits
+        # Stack logits along a new dimension to create a tensor of shape [batch_size, num_heads, output_size]
+        logits = torch.stack(logits, dim=1)
+        return logits
 
 
 @dataclass
@@ -1587,7 +1593,7 @@ class Seq2SeqLMOutputLA(Seq2SeqLMOutput):
     lookahead_logits: torch.FloatTensor = None
     lookahead_loss: Optional[torch.FloatTensor] = None
 
-    
+
 @auto_docstring(
     custom_intro="""
     T5LA Model with a `language modeling` head on top.
@@ -1838,12 +1844,20 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
 
         if self.config.lookahead_type == "lae":
             #  Extend decoder input with lookahead_size extra positions filled by zero as especial tokens:
-            zeros_to_add = torch.zeros(decoder_input_ids.shape[0], self.config.lookahead_size,
-                                       device=decoder_input_ids.device, dtype=decoder_input_ids.dtype)
+            zeros_to_add = torch.zeros(
+                decoder_input_ids.shape[0],
+                self.config.lookahead_size,
+                device=decoder_input_ids.device,
+                dtype=decoder_input_ids.dtype,
+            )
             decoder_input_ids = torch.cat((decoder_input_ids, zeros_to_add), dim=1)
             if decoder_attention_mask is not None:
-                ones_to_add = torch.ones(decoder_attention_mask.shape[0], self.config.lookahead_size,
-                                           device=decoder_attention_mask.device, dtype=decoder_attention_mask.dtype)
+                ones_to_add = torch.ones(
+                    decoder_attention_mask.shape[0],
+                    self.config.lookahead_size,
+                    device=decoder_attention_mask.device,
+                    dtype=decoder_attention_mask.dtype,
+                )
                 decoder_attention_mask = torch.cat((decoder_attention_mask, ones_to_add), dim=1)
         # Decode
         decoder_outputs = self.decoder(
@@ -1881,14 +1895,14 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
                 la_input = torch.repeat_interleave(sequence_output[:, [-1]], self.config.lookahead_size, dim=1)
                 lookahead_logits = self.la_head(la_input)
             elif self.config.lookahead_type == "laa2":
-                lookahead_logits = self.la_head(sequence_output[:, -self.config.lookahead_size:])
+                lookahead_logits = self.la_head(sequence_output[:, -self.config.lookahead_size :])
             else:
-                lookahead_logits = lm_logits[:, -self.config.lookahead_size:]
+                lookahead_logits = lm_logits[:, -self.config.lookahead_size :]
 
             if self.config.lookahead_type == "la":
                 lm_logits = lm_logits[:, 0]
             elif self.config.lookahead_type == "lae":
-                lm_logits = lm_logits[:, :-self.config.lookahead_size]
+                lm_logits = lm_logits[:, : -self.config.lookahead_size]
         else:
             lookahead_logits = None
 
@@ -1901,7 +1915,9 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
             loss = loss_fct(lm_logits.reshape(-1, lm_logits.size(-1)), labels.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
             if self.config.lookahead_size > 0:
-                lookahead_loss = loss_fct(lookahead_logits.reshape(-1, lookahead_logits.size(-1)), lookahead_targets.view(-1))
+                lookahead_loss = loss_fct(
+                    lookahead_logits.reshape(-1, lookahead_logits.size(-1)), lookahead_targets.view(-1)
+                )
                 loss = (loss + lookahead_loss) / 2
 
         if not return_dict:
@@ -1919,7 +1935,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
             lookahead_logits=lookahead_logits,
-            lookahead_loss=lookahead_loss
+            lookahead_loss=lookahead_loss,
         )
 
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):

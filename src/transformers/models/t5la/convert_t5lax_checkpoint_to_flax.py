@@ -122,15 +122,17 @@ def convert_t5lax_checkpoint_to_flax(t5lax_checkpoint_path, config_name, flax_du
         t5lax_enc_dec_attention_out = t5lax_model["target"]["decoder"][layer_name]["encoder_decoder_attention"]["out"][
             "kernel"
         ]
-        t5lax_enc_dec_attention_query = t5lax_model["target"]["decoder"][layer_name]["encoder_decoder_attention"]["query"][
-            "kernel"
-        ]
-        t5lax_enc_dec_attention_value = t5lax_model["target"]["decoder"][layer_name]["encoder_decoder_attention"]["value"][
-            "kernel"
-        ]
+        t5lax_enc_dec_attention_query = t5lax_model["target"]["decoder"][layer_name]["encoder_decoder_attention"][
+            "query"
+        ]["kernel"]
+        t5lax_enc_dec_attention_value = t5lax_model["target"]["decoder"][layer_name]["encoder_decoder_attention"][
+            "value"
+        ]["kernel"]
 
         # Layer Normalization
-        t5lax_cross_layer_norm = t5lax_model["target"]["decoder"][layer_name]["pre_cross_attention_layer_norm"]["scale"]
+        t5lax_cross_layer_norm = t5lax_model["target"]["decoder"][layer_name]["pre_cross_attention_layer_norm"][
+            "scale"
+        ]
 
         # MLP
         if split_mlp_wi:

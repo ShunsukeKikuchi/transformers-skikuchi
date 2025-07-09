@@ -14,13 +14,10 @@
 
 
 import copy
-import os
-import pickle
 import tempfile
 import unittest
 
 from transformers import T5LAConfig, is_torch_available
-from transformers.models.auto.modeling_auto import MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING_NAMES
 from transformers.pytorch_utils import is_torch_greater_or_equal_than_2_4
 from transformers.testing_utils import (
     cleanup,
@@ -33,11 +30,10 @@ from transformers.testing_utils import (
     torch_device,
 )
 from transformers.utils import cached_property
-from transformers.utils.fx import symbolic_trace
 
 from ...generation.test_utils import GenerationTesterMixin
 from ...test_configuration_common import ConfigTester
-from ...test_modeling_common import ModelTesterMixin, _config_zero_init, ids_tensor
+from ...test_modeling_common import ModelTesterMixin, ids_tensor
 from ...test_pipeline_mixin import PipelineTesterMixin
 
 
