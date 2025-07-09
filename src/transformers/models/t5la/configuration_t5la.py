@@ -72,7 +72,8 @@ class T5LAConfig(PretrainedConfig):
     """
 
     model_type = "t5la"
-    keys_to_ignore_at_inference = ["past_key_values"]
+    lookahead_size = 0
+    keys_to_ignore_at_inference = ["past_key_values", "lookahead_logits", "lookahead_loss"]
     attribute_map = {
         "hidden_size": "d_model",
         "num_attention_heads": "num_heads",

@@ -18,6 +18,7 @@ import copy
 import math
 import os
 import warnings
+from dataclasses import dataclass
 from typing import Optional, Union
 
 import torch
@@ -1564,7 +1565,29 @@ class T5LAModel(T5LAPreTrainedModel):
             encoder_attentions=encoder_outputs.attentions,
         )
 
+        
+class LookAheadHeads(nn.Module):
+  def __init__(self, config: T5LAConfig):
+    super().__init__()
+    self.heads = nn.ModuleList(
+      [nn.Linear(config.d_model, config.vocab_size, bias=False) for _ in range(config.lookahead_size + 1)])
 
+  def forward(self, x):
+    # ModuleList can act as an iterable, or be indexed using ints
+    # Apply each head to the shared features
+    logits = [head(x) for head in self.heads]
+
+    # Stack logits along a new dimension to create a tensor of shape [batch_size, num_heads, output_size]
+    logits = torch.stack(logits, dim=1)
+    return logits
+
+
+@dataclass
+class Seq2SeqLMOutputLA(Seq2SeqLMOutput):
+    lookahead_logits: torch.FloatTensor = None
+    lookahead_loss: Optional[torch.FloatTensor] = None
+
+    
 @auto_docstring(
     custom_intro="""
     T5LA Model with a `language modeling` head on top.
@@ -1595,7 +1618,10 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         decoder_config.num_layers = config.num_decoder_layers
         self.decoder = T5LAStack(decoder_config, self.shared)
 
-        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+        if config.lookahead_size > 0:
+            self.lm_head = LookAheadHeads(config)
+        else:
+            self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1684,6 +1710,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        lookahead_targets: Optional[torch.LongTensor] = None,
     ) -> Union[tuple[torch.FloatTensor], Seq2SeqLMOutput]:
         r"""
         input_ids (`torch.LongTensor` of shape `(batch_size, sequence_length)`):
@@ -1728,7 +1755,9 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
             Labels for computing the sequence classification/regression loss. Indices should be in `[-100, 0, ...,
             config.vocab_size - 1]`. All labels set to `-100` are ignored (masked), the loss is only computed for
             labels in `[0, ..., config.vocab_size]`
-
+        lookahead_targets (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the loss of the LA heads or positions (models of type la, laa, and laa2 have
+            LA heads and lae has LA positions)
         Examples:
 
         ```python
@@ -1831,20 +1860,29 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
             sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
+        if self.config.lookahead_size > 0:
+            lookahead_logits = lm_logits[:, -self.config.lookahead_size:]
+            lm_logits = lm_logits[:, 0]
+        else:
+            lookahead_logits = None
 
+        lookahead_loss = None
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-100)
             # move labels to correct device to enable PP
             labels = labels.to(lm_logits.device)
-            loss = loss_fct(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
+            loss = loss_fct(lm_logits.reshape(-1, lm_logits.size(-1)), labels.view(-1))
             # TODO(thom): Add z_loss https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L666
+            if self.config.lookahead_size > 0:
+                lookahead_loss = loss_fct(lookahead_logits.reshape(-1, lookahead_logits.size(-1)), lookahead_targets.view(-1))
+                loss = (loss + lookahead_loss) / 2
 
         if not return_dict:
             output = (lm_logits,) + decoder_outputs[1:] + encoder_outputs
             return ((loss,) + output) if loss is not None else output
 
-        return Seq2SeqLMOutput(
+        return Seq2SeqLMOutputLA(
             loss=loss,
             logits=lm_logits,
             past_key_values=decoder_outputs.past_key_values,
@@ -1854,6 +1892,8 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
+            lookahead_logits=lookahead_logits,
+            lookahead_loss=lookahead_loss
         )
 
     def prepare_decoder_input_ids_from_labels(self, labels: torch.Tensor):
