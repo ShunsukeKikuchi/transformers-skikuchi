@@ -554,6 +554,19 @@ class T5LAModelTest(ModelTesterMixin, GenerationTesterMixin, PipelineTesterMixin
         if is_torch_available()
         else ()
     )
+    pipeline_model_mapping = (
+        {
+            "feature-extraction": T5LAModel,
+            "question-answering": T5LAForQuestionAnswering,
+            "summarization": T5LAForConditionalGeneration,
+            "text-classification": T5LAForSequenceClassification,
+            "text2text-generation": T5LAForConditionalGeneration,
+            "translation": T5LAForConditionalGeneration,
+            "zero-shot": T5LAForSequenceClassification,
+        }
+        if is_torch_available()
+        else {}
+    )
     all_parallelizable_model_classes = (T5LAModel, T5LAForConditionalGeneration) if is_torch_available() else ()
     fx_compatible = False
     test_pruning = False
