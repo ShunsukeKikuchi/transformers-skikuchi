@@ -47,14 +47,14 @@ if is_torch_available():
 
     from transformers import (
         AutoTokenizer,
-        ByT5LATokenizer,
+        ByT5Tokenizer,
         T5LAEncoderModel,
         T5LAForConditionalGeneration,
         T5LAForQuestionAnswering,
         T5LAForSequenceClassification,
         T5LAForTokenClassification,
         T5LAModel,
-        T5LATokenizer,
+        T5Tokenizer,
     )
 
 
@@ -1000,7 +1000,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
 
     @cached_property
     def tokenizer(self):
-        return T5LATokenizer.from_pretrained("google-t5la/t5la-base")
+        return T5Tokenizer.from_pretrained("google-t5la/t5-base")
 
     @slow
     def test_torch_quant(self):
@@ -1008,7 +1008,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
         Test that a simple `torch.quantization.quantize_dynamic` call works on a T5LA model.
         """
         model_name = "google/flan-t5la-small"
-        tokenizer = T5LATokenizer.from_pretrained(model_name)
+        tokenizer = T5Tokenizer.from_pretrained(model_name)
         model = T5LAForConditionalGeneration.from_pretrained(model_name)
         model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
         input_text = "Answer the following yes/no question by reasoning step-by-step. Can you write a whole Haiku in a single tweet?"
@@ -1021,7 +1021,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
         model.config.max_length = 8
         model.config.num_beams = 1
         model.config.do_sample = False
-        tokenizer = T5LATokenizer.from_pretrained("hrezaei/T5LA")
+        tokenizer = T5Tokenizer.from_pretrained("hrezaei/T5LA")
 
         input_ids = tokenizer("summarize: Hello there", return_tensors="pt").input_ids.to(torch_device)
 
@@ -1045,7 +1045,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
         """
 
         model = T5LAForConditionalGeneration.from_pretrained("hrezaei/T5LA").to(torch_device)
-        tokenizer = T5LATokenizer.from_pretrained("hrezaei/T5LA")
+        tokenizer = T5Tokenizer.from_pretrained("hrezaei/T5LA")
 
         input_ids = tokenizer("Hello there", return_tensors="pt").input_ids
         labels = tokenizer("Hi I am", return_tensors="pt").input_ids
@@ -1071,7 +1071,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
         """
 
         model = T5LAForConditionalGeneration.from_pretrained("google/t5la-v1_1-small").to(torch_device)
-        tokenizer = T5LATokenizer.from_pretrained("google/t5la-v1_1-small")
+        tokenizer = T5Tokenizer.from_pretrained("google/t5-v1_1-small")
 
         input_ids = tokenizer("Hello there", return_tensors="pt").input_ids
         labels = tokenizer("Hi I am", return_tensors="pt").input_ids
@@ -1095,7 +1095,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
         """
 
         model = T5LAForConditionalGeneration.from_pretrained("google/byt5la-small").to(torch_device)
-        tokenizer = ByT5LATokenizer.from_pretrained("google/byt5la-small")
+        tokenizer = ByT5Tokenizer.from_pretrained("google/byt5la-small")
 
         input_ids = tokenizer("Hello there", return_tensors="pt").input_ids
         labels = tokenizer("Hi I am", return_tensors="pt").input_ids
@@ -1480,7 +1480,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
             "my fries, my chicken, my burgers, my hot dogs, my sandwiches, my salads, my pizza.",
         ]
         model = T5LAForConditionalGeneration.from_pretrained("hrezaei/T5LA").to(torch_device)
-        tokenizer = T5LATokenizer.from_pretrained("hrezaei/T5LA")
+        tokenizer = T5Tokenizer.from_pretrained("hrezaei/T5LA")
         inputs = tokenizer(prompts, return_tensors="pt", padding=True).to(model.device)
 
         # Dynamic Cache
@@ -1514,7 +1514,7 @@ class T5LAModelIntegrationTests(unittest.TestCase):
             "my fries, my chicken, my burgers, my hot dogs, my sandwiches, my salads, my pizza.",
         ]
         model = T5LAEncoderModel.from_pretrained("hrezaei/T5LA").to(torch_device)
-        tokenizer = T5LATokenizer.from_pretrained("hrezaei/T5LA")
+        tokenizer = T5Tokenizer.from_pretrained("hrezaei/T5LA")
         inputs = tokenizer(prompts, return_tensors="pt", padding=True).to(model.device)
 
         logits = model(**inputs)
