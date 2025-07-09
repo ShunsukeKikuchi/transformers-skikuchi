@@ -72,6 +72,7 @@ class T5LAConfig(PretrainedConfig):
     """
 
     model_type = "t5la"
+    lookahead_type = 'la'  # Other options are "laa", "laa2", and "lae"
     lookahead_size = 0
     keys_to_ignore_at_inference = ["past_key_values", "lookahead_logits", "lookahead_loss"]
     attribute_map = {

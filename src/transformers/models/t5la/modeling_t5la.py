@@ -1618,7 +1618,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         decoder_config.num_layers = config.num_decoder_layers
         self.decoder = T5LAStack(decoder_config, self.shared)
 
-        if config.lookahead_size > 0:
+        if config.lookahead_size > 0 and config.lookahead_type == "la":
             self.lm_head = LookAheadHeads(config)
         else:
             self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
@@ -1829,6 +1829,15 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
             if decoder_attention_mask is not None:
                 decoder_attention_mask = decoder_attention_mask.to(self.decoder.first_device)
 
+        if self.config.lookahead_type == "lae":
+            #  Extend decoder input with lookahead_size extra positions filled by zero as especial tokens:
+            zeros_to_add = torch.zeros(decoder_input_ids.shape[0], self.config.lookahead_size,
+                                       device=decoder_input_ids.device, dtype=decoder_input_ids.dtype)
+            decoder_input_ids = torch.cat((decoder_input_ids, zeros_to_add), dim=1)
+            if decoder_attention_mask is not None:
+                ones_to_add = torch.ones(decoder_attention_mask.shape[0], self.config.lookahead_size,
+                                           device=decoder_attention_mask.device, dtype=decoder_attention_mask.dtype)
+                decoder_attention_mask = torch.cat((decoder_attention_mask, ones_to_add), dim=1)
         # Decode
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,
@@ -1862,7 +1871,10 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         lm_logits = self.lm_head(sequence_output)
         if self.config.lookahead_size > 0:
             lookahead_logits = lm_logits[:, -self.config.lookahead_size:]
-            lm_logits = lm_logits[:, 0]
+            if self.config.lookahead_type == "la":
+                lm_logits = lm_logits[:, 0]
+            elif self.config.lookahead_type == "lae":
+                lm_logits = lm_logits[:, :-self.config.lookahead_size]
         else:
             lookahead_logits = None
 
