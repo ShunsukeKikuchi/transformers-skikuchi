@@ -1623,6 +1623,9 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         else:
             self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+        if config.lookahead_size > 0 and config.lookahead_type in ["laa", "laa2"]:
+            self.la_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -1648,6 +1651,8 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         self.encoder.parallelize(self.device_map)
         self.decoder.parallelize(self.device_map)
         self.lm_head = self.lm_head.to(self.decoder.first_device)
+        if hasattr(self, "la_head"):
+            self.la_head = self.la_head.to(self.decoder.first_device)
         self.model_parallel = True
 
     @add_start_docstrings(DEPARALLELIZE_DOCSTRING)
@@ -1661,6 +1666,8 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         self.encoder = self.encoder.to("cpu")
         self.decoder = self.decoder.to("cpu")
         self.lm_head = self.lm_head.to("cpu")
+        if hasattr(self, "la_head"):
+            self.la_head = self.la_head.to("cpu")
         self.model_parallel = False
         self.device_map = None
         torch.cuda.empty_cache()
@@ -1870,7 +1877,14 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
 
         lm_logits = self.lm_head(sequence_output)
         if self.config.lookahead_size > 0:
-            lookahead_logits = lm_logits[:, -self.config.lookahead_size:]
+            if self.config.lookahead_type == "laa":
+                la_input = torch.repeat_interleave(sequence_output[:, [-1]], self.config.lookahead_size, dim=1)
+                lookahead_logits = self.la_head(la_input)
+            elif self.config.lookahead_type == "laa2":
+                lookahead_logits = self.la_head(sequence_output[:, -self.config.lookahead_size:])
+            else:
+                lookahead_logits = lm_logits[:, -self.config.lookahead_size:]
+
             if self.config.lookahead_type == "la":
                 lm_logits = lm_logits[:, 0]
             elif self.config.lookahead_type == "lae":
