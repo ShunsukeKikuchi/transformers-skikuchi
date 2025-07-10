@@ -57,18 +57,24 @@ class T5LAConfig(PretrainedConfig):
             The maximum distance of the longer sequences for the bucket separation.
         dropout_rate (`float`, *optional*, defaults to 0.1):
             The ratio for all dropout layers.
-        classifier_dropout (`float`, *optional*, defaults to 0.0):
-            The dropout ratio for classifier.
-        layer_norm_eps (`float`, *optional*, defaults to 1e-6):
+        layer_norm_epsilon (`float`, *optional*, defaults to 1e-06):
             The epsilon used by the layer normalization layers.
-        initializer_factor (`float`, *optional*, defaults to 1):
+        initializer_factor (`float`, *optional*, defaults to 1.0):
             A factor for initializing all weight matrices (should be kept to 1, used internally for initialization
             testing).
         feed_forward_proj (`string`, *optional*, defaults to `"relu"`):
             Type of feed forward layer to be used. Should be one of `"relu"` or `"gated-gelu"`. T5LAv1.1 uses the
             `"gated-gelu"` feed forward projection. Original T5LA uses `"relu"`.
+        is_encoder_decoder (`bool`, *optional*, defaults to `True`):
+            Is model encoder-decoder (seq2seq) or decoder-only (causal)?
         use_cache (`bool`, *optional*, defaults to `True`):
             Whether or not the model should return the last key/values attentions (not used by all models).
+        pad_token_id (`int`, *optional*, defaults to 0):
+            The ID of token used for padding
+        eos_token_id (`int`, *optional*, defaults to 1):
+            The ID of token used to mark end of sentences
+        classifier_dropout (`float`, *optional*, defaults to 0.0):
+            The dropout ratio for classifier.
     """
 
     model_type = "t5la"
