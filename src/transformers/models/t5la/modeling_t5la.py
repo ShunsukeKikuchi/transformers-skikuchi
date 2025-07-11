@@ -1310,7 +1310,7 @@ num_heads)`.
 
 
 @auto_docstring
-# Copied from transformers.models.t5.modeling_t5.T5Model with T5->T5LA,t5->t5la,google-t5/t5-small->hrezaei/T5LA
+# Copied from transformers.models.t5.modeling_t5.T5Model with T5->T5LA,t5->t5la,google-t5la/t5la-small->hrezaei/T5LA
 class T5LAModel(T5LAPreTrainedModel):
     _keys_to_ignore_on_load_unexpected = [
         "decoder.block.0.layer.1.EncDecAttention.relative_attention_bias.weight",
@@ -1581,7 +1581,7 @@ class Seq2SeqLMOutputLA(Seq2SeqLMOutput):
     T5LA Model with a `language modeling` head on top.
     """
 )
-# Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration with T5->T5LA,t5->t5la,google-t5/t5-small->hrezaei/T5LA
+# Copied from transformers.models.t5.modeling_t5.T5ForConditionalGeneration with T5->T5LA,t5->t5la,google-t5la/t5la-small->hrezaei/T5LA
 class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
     _keys_to_ignore_on_load_unexpected = [
         "decoder.block.0.layer.1.EncDecAttention.relative_attention_bias.weight",
@@ -1605,7 +1605,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         decoder_config.tie_encoder_decoder = False
         decoder_config.num_layers = config.num_decoder_layers
         self.decoder = T5LAStack(decoder_config, self.shared)
-
+        # Ignore copy
         if config.lookahead_size > 0 and config.lookahead_type == "la":
             self.lm_head = LookAheadHeads(config)
         else:
@@ -1639,6 +1639,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         self.encoder.parallelize(self.device_map)
         self.decoder.parallelize(self.device_map)
         self.lm_head = self.lm_head.to(self.decoder.first_device)
+        # Ignore copy
         if hasattr(self, "la_head"):
             self.la_head = self.la_head.to(self.decoder.first_device)
         self.model_parallel = True
@@ -1654,6 +1655,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         self.encoder = self.encoder.to("cpu")
         self.decoder = self.decoder.to("cpu")
         self.lm_head = self.lm_head.to("cpu")
+        # Ignore copy
         if hasattr(self, "la_head"):
             self.la_head = self.la_head.to("cpu")
         self.model_parallel = False
@@ -1705,6 +1707,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        # Ignore copy
         lookahead_targets: Optional[torch.LongTensor] = None,
     ) -> Union[tuple[torch.FloatTensor], Seq2SeqLMOutput]:
         r"""
@@ -1955,7 +1958,7 @@ class T5LAForConditionalGeneration(T5LAPreTrainedModel, GenerationMixin):
 
 
 @auto_docstring
-# Copied from transformers.models.t5.modeling_t5.T5EncoderModel with T5->T5LA,t5->t5la,google-t5/t5-small->hrezaei/T5LA
+# Copied from transformers.models.t5.modeling_t5.T5EncoderModel with T5->T5LA,t5->t5la,google-t5la/t5la-small->hrezaei/T5LA
 class T5LAEncoderModel(T5LAPreTrainedModel):
     _tied_weights_keys = ["encoder.embed_tokens.weight"]
     _keys_to_ignore_on_load_unexpected = [r"decoder"]
