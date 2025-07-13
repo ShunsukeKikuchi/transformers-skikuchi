@@ -230,5 +230,24 @@ If you're interested in submitting a resource to be included here, please feel f
 [[autodoc]] TFData2VecVisionForSemanticSegmentation
     - call
 
+### facebook/data2vec-audio-base-960h
+
+[`facebook/data2vec-audio-base-960h`](https://huggingface.co/facebook/data2vec-audio-base-960h) is a pretrained speech model from Meta AI, trained using the Data2Vec framework on unlabeled audio data. Instead of predicting specific tokens, the model learns contextualized latent representations, enabling more generalized and effective self-supervised learning for speech.
+
+This model is useful for automatic speech recognition (ASR) tasks and supports integration with Hugging Face's `pipeline` and `AutoModel` interfaces.
+
+> [!TIP]
+> This model was contributed by [edugp](https://huggingface.co/edugp) and is part of the effort to unify model card formats across the library.
+> Check out more models in the [Data2Vec collection](https://huggingface.co/models?search=data2vec).
+
+#### Usage with `pipeline`
+
+```python
+from transformers import pipeline
+
+pipe = pipeline("automatic-speech-recognition", model="facebook/data2vec-audio-base-960h")
+result = pipe("https://huggingface.co/datasets/Narsil/asr_dummy/resolve/main/mlk.flac")
+print(result["text"])
+
 </tf>
 </frameworkcontent>
