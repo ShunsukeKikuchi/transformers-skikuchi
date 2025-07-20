@@ -35,7 +35,7 @@ class Beit3Processor(ProcessorMixin):
     """
 
     attributes = ["image_processor", "tokenizer"]
-    image_processor_class = "BeitImageProcessor"
+    image_processor_class = ("BeitImageProcessor", "BeitImageProcessorFast")
     tokenizer_class = ("XLMRobertaTokenizer", "XLMRobertaTokenizerFast")
 
     def __init__(self, image_processor, tokenizer, **kwargs):

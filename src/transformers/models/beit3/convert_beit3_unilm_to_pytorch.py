@@ -34,6 +34,7 @@ from transformers import (
     Beit3Processor,
     BeitImageProcessor,
     XLMRobertaTokenizer,
+    XLMRobertaTokenizerFast,
 )
 from transformers.utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
@@ -230,11 +231,7 @@ def prepare_img():
 
 
 def get_tokenizer():
-    return XLMRobertaTokenizer.from_pretrained(
-        "https://conversationhub.blob.core.windows.net/beit-share-public/beit3/sentencepiece/beit3.spm?sv=2021-10-04"
-        + "&st=2023-06-08T11%3A16%3A02Z&se=2033-06-09T11%3A16%3A00Z&sr=c&sp=r"
-        + "&sig=N4pfCVmSeq4L4tS8QbrFVsX6f6q844eft8xSuXdxU48%3D"
-    )
+    return XLMRobertaTokenizer.from_pretrained("https://github.com/addf400/files/releases/download/beit3/beit3.spm")
 
 
 def convert_beit3_checkpoint(checkpoint_url, pytorch_dump_folder_path, beit3_model_type, validate_logits):
@@ -373,9 +370,10 @@ if __name__ == "__main__":
         "image_captioning,image_text_retrieval",
     )
     parser.add_argument(
-        "--validate_logits",
+        "--no_validate_logits",
+        dest="validate_logits",
         action="store_false",
-        help="whether to assert logits outputs",
+        help="Disable logits validation",
     )
     args = parser.parse_args()
 

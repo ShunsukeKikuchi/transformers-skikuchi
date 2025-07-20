@@ -15,14 +15,6 @@
 from transformers import PretrainedConfig
 
 
-BEIT3_PRETRAINED_CONFIG_ARCHIVE_MAP = {
-    "Raghavan/beit3_base_patch16_224_in1k": (
-        "https://huggingface.co/Raghavan/beit3_base_patch16_224_in1k/blob/main/config.json"
-    ),
-    # See all BEiT models at https://huggingface.co/models?filter=beit
-}
-
-
 class Beit3Config(PretrainedConfig):
     r"""
     This is the configuration class to store the configuration of a [`Beit3Model`]. It is used to instantiate a BEiT3
