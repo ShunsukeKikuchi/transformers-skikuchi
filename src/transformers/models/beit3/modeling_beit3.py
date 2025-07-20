@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 Microsoft Research and The HuggingFace Inc. team. All rights reserved.
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch BEiT3 model."""
+"""PyTorch BEiT3 model."""
 
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
@@ -719,7 +719,7 @@ class Beit3PreTrainedModel(PreTrainedModel):
     models.
     """
 
-    config_class = Beit3Config
+    config: Beit3Config
     base_model_prefix = "beit3"
     main_input_name = "input_ids"
 
@@ -1446,3 +1446,14 @@ class Beit3ForImageTextRetrieval(Beit3PreTrainedModel):
             text_model_output=text_outputs,
             vision_model_output=vision_outputs,
         )
+
+
+__all__ = [
+    "Beit3ForImagesAndTextClassification",
+    "Beit3ForImageClassification",
+    "Beit3ForCaptioning",
+    "Beit3ForQuestionAnswering",
+    "Beit3ForImageTextRetrieval",
+    "Beit3Model",
+    "Beit3PreTrainedModel",
+]

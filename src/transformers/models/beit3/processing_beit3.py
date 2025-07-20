@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 The HuggingFace Inc. team.
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 """
 Image/Text processor class for Beit3
 """
-
 
 from ...processing_utils import ProcessorMixin
 from ...tokenization_utils_base import BatchEncoding
@@ -100,3 +99,6 @@ class Beit3Processor(ProcessorMixin):
         refer to the docstring of this method for more information.
         """
         return self.tokenizer.decode(*args, **kwargs)
+
+
+__all__ = ["Beit3Processor"]

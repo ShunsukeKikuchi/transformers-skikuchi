@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+# Copyright 2025 The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,7 +11,7 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License.from transformers import PretrainedConfig
+# limitations under the License.
 from transformers import PretrainedConfig
 
 
@@ -28,8 +28,7 @@ class Beit3Config(PretrainedConfig):
     This is the configuration class to store the configuration of a [`Beit3Model`]. It is used to instantiate a BEiT3
     model according to the specified arguments, defining the model architecture. Instantiating a configuration with the
     defaults will yield a similar configuration to that of the BEiT3
-    [microsoft/beit3-base-patch16-224-pt22k](https://huggingface.co/microsoft/beit3-base-patch16-224-pt22k)
-    architecture.
+    [microsoft/beit3-base-patch16-224-pt22k](https://huggingface.co/microsoft/beit3-base-patch16-224-pt22k) architecture.
 
     Args:
         hidden_size (`int`, *optional*, defaults to 768):
@@ -91,10 +90,11 @@ class Beit3Config(PretrainedConfig):
 
     def __init__(
         self,
+        vocab_size=64010,
         hidden_size=768,
+        num_hidden_layers=12,
         num_attention_heads=12,
         intermediate_size=3072,
-        num_hidden_layers=12,
         encoder_normalize_before=False,
         activation_fn="gelu",
         dropout=0.0,
@@ -103,7 +103,6 @@ class Beit3Config(PretrainedConfig):
         sub_layernorm=True,
         max_position_embeddings=1024,
         layer_norm_eps=1e-5,
-        vocab_size=64010,
         image_size=224,
         patch_size=16,
         num_channels=3,
@@ -134,3 +133,6 @@ class Beit3Config(PretrainedConfig):
 
         self.logit_scale_init_value = logit_scale_init_value
         self.layer_norm_eps = layer_norm_eps
+
+
+__all__ = ["Beit3Config"]
