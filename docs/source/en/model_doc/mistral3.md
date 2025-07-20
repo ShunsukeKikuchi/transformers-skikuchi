@@ -13,12 +13,13 @@ specific language governing permissions and limitations under the License.
 rendered properly in your Markdown viewer.
 
 -->
+*This model was released on 2025-01-30 and added to Hugging Face Transformers on 2025-03-18.*
 
 # Mistral3
 
 ## Overview
 
-Building upon Mistral Small 3 (2501), Mistral Small 3.1 (2503) adds state-of-the-art vision understanding and enhances long context capabilities up to 128k tokens without compromising text performance. With 24 billion parameters, this model achieves top-tier capabilities in both text and vision tasks.
+Building upon [Mistral Small 3](https://mistral.ai/news/mistral-small-3) (25-01-30), [Mistral Small 3.1](https://mistral.ai/news/mistral-small-3-1) (25-03-17) adds state-of-the-art vision understanding and enhances long context capabilities up to 128k tokens without compromising text performance. With 24 billion parameters, this model achieves top-tier capabilities in both text and vision tasks.
 
 It is ideal for:
 - Fast-response conversational agents.
