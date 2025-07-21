@@ -1187,9 +1187,6 @@ class ClvpModel(ClvpPreTrainedModel):
     def set_input_embeddings(self, value):
         self.decoder.input_embeds_layer = value
 
-    def get_decoder(self):
-        return self.decoder
-
     @auto_docstring
     def forward(
         self,
@@ -1258,6 +1255,9 @@ class ClvpForCausalLM(ClvpPreTrainedModel, GenerationMixin):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def get_output_embeddings(self):
+        return None
 
     def get_input_embeddings(self):
         return self.model.decoder.input_embeds_layer
