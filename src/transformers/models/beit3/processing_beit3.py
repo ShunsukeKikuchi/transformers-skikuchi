@@ -16,8 +16,13 @@
 Image/Text processor class for Beit3
 """
 
+from typing import Optional, Union
+
+from transformers.utils.generic import PaddingStrategy
+
 from ...processing_utils import ProcessorMixin
-from ...tokenization_utils_base import BatchEncoding
+from ...tokenization_utils_base import BatchEncoding, TruncationStrategy
+from ...utils import TensorType
 
 
 class Beit3Processor(ProcessorMixin):
@@ -41,7 +46,16 @@ class Beit3Processor(ProcessorMixin):
     def __init__(self, image_processor, tokenizer, **kwargs):
         super().__init__(image_processor, tokenizer)
 
-    def __call__(self, text=None, images=None, padding="max_length", return_tensors="np", **kwargs):
+    def __call__(
+        self,
+        text=None,
+        images=None,
+        padding: Union[bool, str, PaddingStrategy] = False,
+        truncation: Union[bool, str, TruncationStrategy] = None,
+        max_length: Optional[int] = None,
+        return_tensors: Optional[Union[str, TensorType]] = None,
+        **kwargs,
+    ):
         """
         Main method to prepare for the model one or several text(s) and image(s). This method forwards the `text` and
         `kwargs` arguments to XLMRobertaTokenizerFast's [`~XLMRobertaTokenizerFast.__call__`] if `text` is not `None`
@@ -79,7 +93,14 @@ class Beit3Processor(ProcessorMixin):
 
         encoding = {}
         if text is not None:
-            text_encoding = self.tokenizer(text, return_tensors=return_tensors, **kwargs)
+            text_encoding = self.tokenizer(
+                text,
+                return_tensors=return_tensors,
+                padding=padding,
+                truncation=truncation,
+                max_length=max_length,
+                **kwargs,
+            )
             encoding.update(text_encoding)
         if images is not None:
             image_encoding = self.image_processor(images, return_tensors=return_tensors, **kwargs)
