@@ -31,15 +31,16 @@ from transformers import (
     Beit3ForImagesAndTextClassification,
     Beit3ForImageTextRetrieval,
     Beit3ForQuestionAnswering,
+    Beit3Model,
     Beit3Processor,
     BeitImageProcessor,
     XLMRobertaTokenizer,
-    XLMRobertaTokenizerFast,
 )
 from transformers.utils.constants import OPENAI_CLIP_MEAN, OPENAI_CLIP_STD
 
 
 model_type_to_class_mapping = {
+    "pretrained": Beit3Model,
     "image_classification": Beit3ForImageClassification,
     "vqa": Beit3ForQuestionAnswering,
     "visual_reasoning": Beit3ForImagesAndTextClassification,
@@ -79,6 +80,24 @@ def get_id2label_for_vqa():
     id2label = dict(data[["label", "answer"]].values.tolist())
     label2id = {v: k for k, v in id2label.items()}
     return id2label, label2id
+
+
+def get_base_config_pretrained():
+    return Beit3Config(
+        hidden_size=768,
+        intermediate_size=768 * 4,
+        encoder_normalize_before=True,
+    )
+
+
+def get_large_config_pretrained():
+    return Beit3Config(
+        hidden_size=1024,
+        num_hidden_layers=24,
+        num_attention_heads=16,
+        intermediate_size=1024 * 4,
+        encoder_normalize_before=True,
+    )
 
 
 def get_base_config_image_classification():
@@ -244,7 +263,12 @@ def convert_beit3_checkpoint(checkpoint_url, pytorch_dump_folder_path, beit3_mod
         img_size = 384
 
     config = Beit3Config()
-    if beit3_model_type == "image_classification":
+    if beit3_model_type == "pretrained":
+        if "base" in checkpoint_url:
+            config = get_base_config_pretrained()
+        else:
+            config = get_large_config_pretrained()
+    elif beit3_model_type == "image_classification":
         if "base" in checkpoint_url:
             config = get_base_config_image_classification()
         else:
@@ -276,6 +300,11 @@ def convert_beit3_checkpoint(checkpoint_url, pytorch_dump_folder_path, beit3_mod
 
     model_state_dict = ulilm_state_dict["model"]
     model_state_dict = rename_keys(model_state_dict, beit3_model_type)
+
+    if isinstance(model, Beit3Model):
+        # For Beit3Model, we need filter beit3 keys and remove them
+        model_state_dict = {k.replace("beit3.", ""): v for k, v in model_state_dict.items() if k.startswith("beit3.")}
+
     model.load_state_dict(model_state_dict)
 
     image_processor = BeitImageProcessor(
@@ -366,8 +395,8 @@ if __name__ == "__main__":
         "--beit3_model_type",
         default=None,
         type=str,
-        help="Beit3 model type, it has to be one of image_classification, vqa, visual_reasoning,"
-        "image_captioning,image_text_retrieval",
+        help="Beit3 model type, it has to be one of pretrained, image_classification, vqa, visual_reasoning,"
+        "image_captioning, image_text_retrieval",
     )
     parser.add_argument(
         "--no_validate_logits",
@@ -379,8 +408,8 @@ if __name__ == "__main__":
 
     if args.beit3_model_type not in model_type_to_class_mapping.keys():
         raise Exception(
-            "beit3_model_type should be one of image_classification, vqa,visual_reasoning,"
-            "image_captioning,image_text_retrieval"
+            "beit3_model_type should be one of pretrained, image_classification, vqa,visual_reasoning,"
+            "image_captioning, image_text_retrieval"
         )
 
     args = parser.parse_args()
