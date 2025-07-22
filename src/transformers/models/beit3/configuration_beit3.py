@@ -42,6 +42,8 @@ class Beit3Config(PretrainedConfig):
             The dropout probability of the attention layer.
         activation_dropout (`float`, *optional*, defaults to 0.0):
             The dropout probability of the activation layer.
+        drop_path_rate (`float`, *optional*, defaults to 0.0):
+            The drop path rate for stochastic depth, which is a regularization technique to randomly drop paths
         sub_layernorm (`bool`, *optional*, defaults to `True`):
             Whether to apply sub layer norm
         max_position_embeddings (`int`, *optional*, defaults to 1024):
@@ -92,6 +94,7 @@ class Beit3Config(PretrainedConfig):
         dropout=0.0,
         attention_dropout=0.0,
         activation_dropout=0.0,
+        drop_path_rate=0.0,
         sub_layernorm=True,
         max_position_embeddings=1024,
         layer_norm_eps=1e-5,
@@ -113,6 +116,7 @@ class Beit3Config(PretrainedConfig):
         self.dropout = dropout
         self.attention_dropout = attention_dropout
         self.activation_dropout = activation_dropout
+        self.drop_path_rate = drop_path_rate
         self.sub_layernorm = sub_layernorm
         self.max_position_embeddings = max_position_embeddings
         self.initializer_range = initializer_range

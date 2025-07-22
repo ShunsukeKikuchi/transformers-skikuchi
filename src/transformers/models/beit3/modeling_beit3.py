@@ -17,6 +17,7 @@
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple, Union
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -282,6 +283,24 @@ class Beit3ImageTextMatchingOutput(ModelOutput):
             self[k] if k not in ["text_model_output", "vision_model_output"] else getattr(self, k).to_tuple()
             for k in self.keys()
         )
+
+
+class Beit3DropPath(nn.Module):
+    def __init__(self, drop_prob=None, scale_by_keep=True):
+        super().__init__()
+        self.drop_prob = drop_prob
+        self.scale_by_keep = scale_by_keep
+
+    def forward(self, x):
+        # Implementation is from timm: https://github.com/huggingface/pytorch-image-models/blob/main/timm/layers/drop.py#L150
+        if self.drop_prob == 0.0 or not self.training:
+            return x
+        keep_prob = 1 - self.drop_prob
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+        random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+        if keep_prob > 0.0 and self.scale_by_keep:
+            random_tensor.div_(keep_prob)
+        return x * random_tensor
 
 
 class Beit3MLP(nn.Module):
@@ -564,12 +583,18 @@ class Beit3MultiheadAttention(nn.Module):
 
 
 class Beit3EncoderLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: Beit3Config, depth: int):
         super().__init__()
         self.embed_dim = config.hidden_size
         self.self_attn = Beit3MultiheadAttention(config)
         self.self_attn_layer_norm = Beit3LayerNorm(config)
         self.dropout_module = nn.Dropout(config.dropout)
+
+        if config.drop_path_rate > 0:
+            drop_path_prob = np.linspace(0, config.drop_path_rate, config.num_hidden_layers)[depth]
+            self.drop_path = Beit3DropPath(drop_path_prob)
+        else:
+            self.drop_path = None
 
         self.normalize_before = config.sub_layernorm
         self.ffn_dim = config.intermediate_size
@@ -592,6 +617,8 @@ class Beit3EncoderLayer(nn.Module):
 
         residual = hidden_states
         split_position = multiway_split_position if multiway_split_position is not None else -1
+
+        if self.normalize_before:
         hidden_states = self.self_attn_layer_norm(hidden_states, split_position=split_position)
         output = self.self_attn(
             query=hidden_states,
@@ -609,31 +636,47 @@ class Beit3EncoderLayer(nn.Module):
             hidden_states, attention_weights = output
         else:
             hidden_states = output[0]
+
         hidden_states = self.dropout_module(hidden_states)
 
-        hidden_states = residual * self.alpha + hidden_states
+        if self.drop_path is not None:
+            hidden_states = self.drop_path(hidden_states)
+
+        hidden_states = self._residual_connection(hidden_states, residual)
+        if not self.normalize_before:
+            hidden_states = self.self_attn_layer_norm(hidden_states)
 
         residual = hidden_states
+        if self.normalize_before:
         hidden_states = self.final_layer_norm(hidden_states, split_position=split_position)
         hidden_states = self.ffn(hidden_states, split_position=split_position)
 
-        hidden_states = residual * self.alpha + hidden_states
+        if self.drop_path is not None:
+            hidden_states = self.drop_path(hidden_states)
+
+        hidden_states = self._residual_connection(hidden_states, residual)
         if not self.normalize_before:
             hidden_states = self.final_layer_norm(hidden_states, split_position=split_position)
+
         if output_attentions:
             return hidden_states, attention_weights
         return hidden_states
 
+    def _residual_connection(self, hidden_states, residual):
+        return residual * self.alpha + hidden_states
+
 
 class Beit3Encoder(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: Beit3Config):
         super().__init__()
 
         self.config = config
         self.dropout_module = nn.Dropout(config.dropout)
         self.embed_positions = Beit3PositionEmbeddings(config)
 
-        self.layers = nn.ModuleList([Beit3EncoderLayer(config) for _ in range(config.num_hidden_layers)])
+        self.layers = nn.ModuleList(
+            [Beit3EncoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
+        )
 
         self.fc_norm = Beit3LayerNorm(config) if config.sub_layernorm and config.encoder_normalize_before else None
 
