@@ -9,7 +9,7 @@ from transformers.generation import GenerationConfig
 
 torch.set_float32_matmul_precision("high")
 
-model_id = "meta-llama/Llama-3.2-3b-Instruct"
+model_id = "meta-llama/Llama-3.2-1b-Instruct"
 model = AutoModelForCausalLM.from_pretrained(
     model_id, attn_implementation="sdpa_paged", torch_dtype=torch.bfloat16, device_map="auto"
 ).eval()
@@ -20,14 +20,22 @@ generation_config = GenerationConfig(
     eos_token_id=tokenizer.eos_token_id,
     pad_token_id=tokenizer.pad_token_id,
     use_cache=False,
-    num_blocks=2048,
-    block_size=128,
+    num_blocks=128,
+    block_size=32,
     do_sample=True,
-    max_batch_tokens=1024,  # Maximum number of tokens to process in a single batch
+    max_batch_tokens=64,  # Maximum number of tokens to process in a single batch
     scheduler="prefill_first",
 )
 
 train_dataset = datasets.load_dataset("openai/gsm8k", "socratic", split="test")
+train_dataset = train_dataset.select(range(5))
+
+# Create a dataset from a list with one element
+# from datasets import Dataset
+
+# single_element_list = [{"question": "give me a very long story"}]
+# train_dataset = Dataset.from_list(single_element_list)
+
 
 # --- Example 1: Simple Version using generate_batch ---
 print("--- Running CB Generation Example ---")
@@ -48,6 +56,7 @@ batch_outputs = model.generate_batch(
 )
 end_time_simple = time.time()
 
+generated_tokens: int = 0
 for request in batch_outputs:
     input_text = tokenizer.decode(batch_outputs[request].prompt_ids, skip_special_tokens=False)
     try:
@@ -58,6 +67,7 @@ for request in batch_outputs:
     if len(output_text) > 0:
         print("-" * 20)
         print(f"{request} Input:  {input_text}")
+        generated_tokens += len(batch_outputs[request].generated_tokens)
         print(f"{request} Output: {output_text}")
     else:
         print("", end="\r\r\r\r")
@@ -65,8 +75,9 @@ print("-" * 20)
 print("--- Finished CB Generation Example ---\n\n")
 
 
-print(f"CB generation took: {end_time_simple - start_time_simple:.2f} seconds")
-
+print(
+    f"CB generation took: {end_time_simple - start_time_simple:.2f} seconds for {generated_tokens} generated tokens. So {generated_tokens / (end_time_simple - start_time_simple)} tok/s\n"
+)
 
 # train_dataset = train_dataset.select(range(5))  # Use only 5 examples for the simple version
 
