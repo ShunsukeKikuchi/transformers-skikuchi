@@ -133,7 +133,11 @@ class FSMTConfig(PretrainedConfig):
     ```"""
 
     model_type = "fsmt"
-    attribute_map = {"num_attention_heads": "encoder_attention_heads", "hidden_size": "d_model"}
+    attribute_map = {
+        "num_attention_heads": "encoder_attention_heads",
+        "hidden_size": "d_model",
+        "num_hidden_layers": "decoder_layers",
+    }
 
     # update the defaults from config file
     def __init__(
