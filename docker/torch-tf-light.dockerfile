@@ -4,7 +4,6 @@ ARG REF=main
 RUN echo ${REF}
 USER root
 RUN apt-get update &&  apt-get install -y --no-install-recommends libsndfile1-dev espeak-ng time git g++ cmake pkg-config openssh-client git git-lfs
-ENV UV_PYTHON=/usr/local/bin/python
 RUN pip --no-cache-dir install uv && uv venv && uv pip install --no-cache-dir -U pip setuptools
 RUN uv pip install --no-cache-dir  --no-deps accelerate --extra-index-url https://download.pytorch.org/whl/cpu 
 RUN uv pip install --no-cache-dir 'torch' 'torchaudio' 'torchvision' --index-url https://download.pytorch.org/whl/cpu
@@ -17,3 +16,5 @@ RUN uv pip install --no-cache-dir  "protobuf==3.20.3" librosa
 
 RUN uv pip uninstall transformers
 RUN apt-get clean && rm -rf /var/lib/apt/lists/* && apt-get autoremove && apt-get autoclean
+
+ENV PATH="/.venv/bin:$PATH"
