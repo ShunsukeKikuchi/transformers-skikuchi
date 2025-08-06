@@ -18,10 +18,11 @@ import unittest
 
 import pytest
 import requests
+import torch
 from parameterized import parameterized
 
 from transformers import FuyuConfig, is_torch_available, is_vision_available
-from transformers.testing_utils import require_torch, require_torch_accelerator, slow
+from transformers.testing_utils import require_torch, require_torch_accelerator, slow, torch_device
 from transformers.utils import cached_property
 
 from ...generation.test_utils import GenerationTesterMixin
@@ -232,7 +233,7 @@ class FuyuModelIntegrationTest(unittest.TestCase):
 
     @cached_property
     def default_model(self):
-        return FuyuForCausalLM.from_pretrained("adept/fuyu-8b")
+        return FuyuForCausalLM.from_pretrained("adept/fuyu-8b", torch_dtype="float16", device_map=torch_device)
 
     def test_greedy_generation(self):
         processor = self.default_processor
@@ -243,7 +244,9 @@ class FuyuModelIntegrationTest(unittest.TestCase):
 
         text_prompt_coco_captioning = "Generate a coco-style caption.\n"
 
-        inputs = processor(images=image, text=text_prompt_coco_captioning, return_tensors="pt")
+        inputs = processor(images=image, text=text_prompt_coco_captioning, return_tensors="pt").to(
+            torch_device, torch.float16
+        )
         generated_ids = model.generate(**inputs, max_new_tokens=10)
 
         # take the last 8 tokens (in order to skip special \n\x04 characters) and decode them
