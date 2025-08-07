@@ -240,6 +240,68 @@ class Mask2FormerForUniversalSegmentationOutput(ModelOutput):
     transformer_decoder_hidden_states: Optional[torch.FloatTensor] = None
     attentions: Optional[tuple[torch.FloatTensor]] = None
 
+@dataclass
+@auto_docstring(
+    custom_intro="""
+    Class for outputs of [`Mask2FormerForUniversalSegmentationOutput`].
+
+    This output can be directly passed to [`~Mask2FormerImageProcessor.post_process_semantic_segmentation`] or
+    [`~Mask2FormerImageProcessor.post_process_instance_segmentation`] or
+    [`~Mask2FormerImageProcessor.post_process_panoptic_segmentation`] to compute final segmentation maps. Please, see
+    [`~Mask2FormerImageProcessor] for details regarding usage.
+    """
+)
+class Mask2FormerForUniversalSegmentationWithDepthOutput(ModelOutput):
+    r"""
+    loss (`torch.Tensor`, *optional*):
+        The computed loss, returned when labels are present.
+    class_queries_logits (`torch.FloatTensor`):
+        A tensor of shape `(batch_size, num_queries, num_labels + 1)` representing the proposed classes for each
+        query. Note the `+ 1` is needed because we incorporate the null class.
+    masks_queries_logits (`torch.FloatTensor`):
+        A tensor of shape `(batch_size, num_queries, height, width)` representing the proposed masks for each
+        query.
+    auxiliary_logits (`list[Dict(str, torch.FloatTensor)]`, *optional*):
+        List of class and mask predictions from each layer of the transformer decoder.
+    encoder_last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
+        Last hidden states (final feature map) of the last stage of the encoder model (backbone).
+    pixel_decoder_last_hidden_state (`torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
+        Last hidden states (final feature map) of the last stage of the pixel decoder model.
+    transformer_decoder_last_hidden_state (`tuple(torch.FloatTensor)`):
+        Final output of the transformer decoder `(batch_size, sequence_length, hidden_size)`.
+    encoder_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
+        shape `(batch_size, num_channels, height, width)`. Hidden-states (also called feature maps) of the encoder
+        model at the output of each stage.
+    pixel_decoder_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
+        shape `(batch_size, num_channels, height, width)`. Hidden-states (also called feature maps) of the pixel
+        decoder model at the output of each stage.
+    transformer_decoder_hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+        Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each stage) of
+        shape `(batch_size, sequence_length, hidden_size)`. Hidden-states (also called feature maps) of the
+        transformer decoder at the output of each stage.
+    attentions (`tuple(tuple(torch.FloatTensor))`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
+        Tuple of `tuple(torch.FloatTensor)` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
+        sequence_length)`. Self and Cross Attentions weights from transformer decoder.
+    depth_queries_logits (`torch.FloatTensor`):
+        A tensor of shape `(batch_size, height, width)` representing the proposed depth for each pixel.
+    """
+
+    loss: Optional[torch.FloatTensor] = None
+    class_queries_logits: Optional[torch.FloatTensor] = None
+    masks_queries_logits: Optional[torch.FloatTensor] = None
+    auxiliary_logits: Optional[list[dict[str, torch.FloatTensor]]] = None
+    encoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    pixel_decoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    transformer_decoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    encoder_hidden_states: Optional[tuple[torch.FloatTensor]] = None
+    pixel_decoder_hidden_states: Optional[tuple[torch.FloatTensor]] = None
+    transformer_decoder_hidden_states: Optional[torch.FloatTensor] = None
+    attentions: Optional[tuple[torch.FloatTensor]] = None
+    depth_queries_logits: Optional[torch.FloatTensor] = None
+
+
 
 # Adapted from https://github.com/facebookresearch/detectron2/blob/main/projects/PointRend/point_rend/point_features.py
 def sample_point(
@@ -2472,5 +2534,203 @@ class Mask2FormerForUniversalSegmentation(Mask2FormerPreTrainedModel):
                 output = (loss) + output
         return output
 
+###########################################################################################################
+class DepthEstimationHead(nn.Module):
+    """
+    ピクセルデコーダーの特徴マップから深度を推定するためのシンプルなヘッド。
+    """
+    def __init__(self, in_channels: int, out_channels: int = 1):
+        super().__init__()
+        # 3x3畳み込みと1x1畳み込みを組み合わせたシンプルな構造
+        self.head = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3, padding=1, bias=False),
+            nn.GroupNorm(32, in_channels // 2),
+            nn.ReLU(),
+            nn.Conv2d(in_channels // 2, out_channels, kernel_size=1, stride=1, padding=0)
+        )
 
-__all__ = ["Mask2FormerForUniversalSegmentation", "Mask2FormerModel", "Mask2FormerPreTrainedModel"]
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            features (`torch.Tensor`): (batch_size, channels, height, width) 形状の特徴マップ
+        Returns:
+            `torch.Tensor`: (batch_size, 1, height, width) 形状の深度予測
+        """
+        return self.head(features)
+
+
+# =================================================================
+# ===== 3. メインモデルの拡張 ======================================
+# =================================================================
+
+# `DepthEstimationHead` の定義が
+# このクラスより前にあることを確認してください。
+
+@auto_docstring(
+    custom_intro="""
+    The Mask2Former Model with heads on top for universal segmentation and an auxiliary head for depth estimation.
+    """
+)
+class Mask2FormerForUniversalSegmentationWithDepth(Mask2FormerPreTrainedModel):
+    main_input_name = "pixel_values"
+
+    def __init__(self, config: Mask2FormerConfig):
+        super().__init__(config)
+        self.model = Mask2FormerModel(config)
+
+        # セグメンテーションのための損失の重み
+        self.weight_dict: dict[str, float] = {
+            "loss_cross_entropy": config.class_weight,
+            "loss_mask": config.mask_weight,
+            "loss_dice": config.dice_weight,
+        }
+
+        # セグメンテーションのためのクラス予測器
+        self.class_predictor = nn.Linear(config.hidden_dim, config.num_labels + 1)
+
+        # === 深度推定ヘッドの初期化 ===
+        self.depth_head = DepthEstimationHead(config.mask_feature_size, 1)
+        
+        # 損失計算のためのモジュール
+        self.criterion = Mask2FormerLoss(config=config, weight_dict=self.weight_dict)
+
+        # === 深度損失のための重み ===
+        self.depth_loss_weight = getattr(config, "depth_loss_weight", 1.0)
+
+        self.post_init()
+    
+    # get_loss_dict, get_loss, get_auxiliary_logits は元のクラスからコピーします
+    def get_loss_dict(
+        self,
+        masks_queries_logits: Tensor,
+        class_queries_logits: Tensor,
+        depth_queries_logits: Tensor,
+        mask_labels: Tensor,
+        class_labels: Tensor,
+        depth_labels: Tensor,
+        auxiliary_predictions: dict[str, Tensor],
+    ) -> dict[str, Tensor]:
+        loss_dict: dict[str, Tensor] = self.criterion(
+            masks_queries_logits=masks_queries_logits,
+            class_queries_logits=class_queries_logits,
+            mask_labels=mask_labels,
+            class_labels=class_labels,
+            auxiliary_predictions=auxiliary_predictions,
+        )
+        loss_dict["loss_depth"] = torch.nn.functional.l1_loss(depth_queries_logits, depth_labels)
+        for key, weight in self.weight_dict.items():
+            for loss_key, loss in loss_dict.items():
+                if key in loss_key:
+                    loss *= weight
+        return loss_dict
+
+    def get_loss(self, loss_dict: dict[str, Tensor]) -> Tensor:
+        return sum(loss_dict.values())
+
+    def get_auxiliary_logits(self, classes: torch.Tensor, output_masks: torch.Tensor):
+        auxiliary_logits: list[dict[str, Tensor]] = []
+        for aux_binary_masks, aux_classes in zip(output_masks[:-1], classes[:-1]):
+            auxiliary_logits.append({"masks_queries_logits": aux_binary_masks, "class_queries_logits": aux_classes})
+        return auxiliary_logits
+
+    @auto_docstring
+    def forward(
+        self,
+        pixel_values: Tensor,
+        mask_labels: Optional[list[Tensor]] = None,
+        class_labels: Optional[list[Tensor]] = None,
+        depth_labels: Optional[Tensor] = None, # <-- 深度の教師ラベルを追加
+        pixel_mask: Optional[Tensor] = None,
+        output_hidden_states: Optional[bool] = None,
+        output_auxiliary_logits: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Mask2FormerForUniversalSegmentationWithDepthOutput:
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        # 1. ベースモデルから特徴量を取得
+        outputs = self.model(
+            pixel_values=pixel_values,
+            pixel_mask=pixel_mask,
+            output_hidden_states=output_hidden_states or self.config.use_auxiliary_loss,
+            output_attentions=output_attentions,
+            return_dict=True,
+        )
+        
+        # 2. 深度を予測
+        pixel_decoder_last_hidden_state = outputs.pixel_decoder_last_hidden_state #encoder_last_hidden_stateでもいいかも？
+        depth_logits = self.depth_head(pixel_decoder_last_hidden_state)
+        # 元の画像サイズにアップサンプリング
+        depth_logits = nn.functional.interpolate(
+            depth_logits,
+            size=depth_labels[0].shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        ).squeeze(1)  # (B, 1, H, W) -> (B, H, W)
+
+        # 3. セグメンテーションの出力を計算
+        loss, loss_dict, auxiliary_logits = None, None, None
+        class_queries_logits = ()
+
+        for decoder_output in outputs.transformer_decoder_intermediate_states:
+            class_prediction = self.class_predictor(decoder_output.transpose(0, 1))
+            class_queries_logits += (class_prediction,)
+
+        masks_queries_logits = outputs.masks_queries_logits
+
+        auxiliary_logits = self.get_auxiliary_logits(class_queries_logits, masks_queries_logits)
+        # 4. 損失を計算
+        total_loss = None
+        segmentation_loss = None
+        depth_loss = None
+
+        if mask_labels is not None and class_labels is not None:
+            loss_dict = self.get_loss_dict(
+                masks_queries_logits=masks_queries_logits[-1],
+                class_queries_logits=class_queries_logits[-1],
+                depth_queries_logits=depth_logits,
+                mask_labels=mask_labels,
+                class_labels=class_labels,
+                depth_labels=depth_labels,
+                auxiliary_predictions=auxiliary_logits,
+            )
+            loss = self.get_loss(loss_dict)
+
+        encoder_hidden_states = None
+        pixel_decoder_hidden_states = None
+        transformer_decoder_hidden_states = None
+        
+        # 5. aux loss
+        output_auxiliary_logits = (
+            self.config.output_auxiliary_logits if output_auxiliary_logits is None else output_auxiliary_logits
+        )
+        if not output_auxiliary_logits:
+            auxiliary_logits = None
+
+        output = Mask2FormerForUniversalSegmentationWithDepthOutput(
+            loss=loss,
+            class_queries_logits=class_queries_logits[-1],
+            masks_queries_logits=masks_queries_logits[-1],
+            auxiliary_logits=auxiliary_logits,
+            encoder_last_hidden_state=outputs.encoder_last_hidden_state,
+            pixel_decoder_last_hidden_state=outputs.pixel_decoder_last_hidden_state,
+            transformer_decoder_last_hidden_state=outputs.transformer_decoder_last_hidden_state,
+            encoder_hidden_states=encoder_hidden_states,
+            pixel_decoder_hidden_states=pixel_decoder_hidden_states,
+            transformer_decoder_hidden_states=transformer_decoder_hidden_states,
+            attentions=outputs.attentions,
+            depth_queries_logits=depth_logits,
+        )
+        if not return_dict:
+            output = tuple(v for v in output.values() if v is not None)
+            if loss is not None:
+                output = (loss) + output
+        return output
+# `__all__` に新しいモデルを追加
+__all__ = ["Mask2FormerForUniversalSegmentation", "Mask2FormerModel", "Mask2FormerPreTrainedModel", "Mask2FormerForUniversalSegmentationWithDepth"]
+
+#__all__ = ["Mask2FormerForUniversalSegmentation", "Mask2FormerModel", "Mask2FormerPreTrainedModel"]
