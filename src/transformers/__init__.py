@@ -18,11 +18,7 @@
 # to defer the actual importing for when the objects are requested. This way `import transformers` provides the names
 # in the namespace without actually importing anything (and especially none of the backends).
 
-<<<<<<< HEAD
 __version__ = "4.55.0"
-=======
-__version__ = "4.56.0.dev0"
->>>>>>> 743bb5f52e29d83e5d3fd3db4d83146bd4edce28
 
 from pathlib import Path
 from typing import TYPE_CHECKING
