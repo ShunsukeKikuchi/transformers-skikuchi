@@ -251,6 +251,54 @@ class Mask2FormerForUniversalSegmentationOutput(ModelOutput):
     [`~Mask2FormerImageProcessor] for details regarding usage.
     """
 )
+#####################################################################################################################
+@dataclass
+@auto_docstring(
+    custom_intro="""
+    Mask2Former's pixel level module output. It returns the output of the encoder (optional) and all hidden states
+    (multi-scale features) from the `decoder`. By default, the `encoder` is a Swin Backbone and the `decoder` is a
+    Multi-Scale Deformable Attention based decoder.
+
+    The `decoder_last_hidden_state` are the **per-pixel embeddings** while `decoder_hidden_states` refer to multi-scale
+    feature maps produced using **multi-scaling strategy** defined in the paper.
+    """
+)
+class Mask2FormerPixelLevelModuleWithDepthOutput(ModelOutput):
+    encoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    encoder_hidden_states: Optional[tuple[torch.FloatTensor, ...]] = None
+    decoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    decoder_hidden_states: tuple[torch.FloatTensor] = None
+    predicted_depth: Optional[torch.FloatTensor] = None  # <-- 深度予測を追加
+
+@dataclass
+@auto_docstring(
+    custom_intro="""
+    Class for outputs of [`Mask2FormerModel`]. This class returns all the needed hidden states to compute the logits.
+    """
+)
+class Mask2FormerModelWithDepthOutput(ModelOutput):
+    encoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    pixel_decoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    transformer_decoder_last_hidden_state: Optional[torch.FloatTensor] = None
+    encoder_hidden_states: Optional[tuple[torch.FloatTensor]] = None
+    pixel_decoder_hidden_states: Optional[tuple[torch.FloatTensor]] = None
+    transformer_decoder_hidden_states: Optional[tuple[torch.FloatTensor]] = None
+    transformer_decoder_intermediate_states: tuple[torch.FloatTensor] = None
+    masks_queries_logits: tuple[torch.FloatTensor] = None
+    attentions: Optional[tuple[torch.FloatTensor]] = None
+    predicted_depth: Optional[torch.FloatTensor] = None # <-- 深度予測を追加
+
+@dataclass
+@auto_docstring(
+    custom_intro="""
+    Class for outputs of [`Mask2FormerForUniversalSegmentationOutput`].
+
+    This output can be directly passed to [`~Mask2FormerImageProcessor.post_process_semantic_segmentation`] or
+    [`~Mask2FormerImageProcessor.post_process_instance_segmentation`] or
+    [`~Mask2FormerImageProcessor.post_process_panoptic_segmentation`] to compute final segmentation maps. Please, see
+    [`~Mask2FormerImageProcessor] for details regarding usage.
+    """
+)
 class Mask2FormerForUniversalSegmentationWithDepthOutput(ModelOutput):
     r"""
     loss (`torch.Tensor`, *optional*):
@@ -2535,36 +2583,258 @@ class Mask2FormerForUniversalSegmentation(Mask2FormerPreTrainedModel):
         return output
 
 ###########################################################################################################
-class DepthEstimationHead(nn.Module):
-    """
-    ピクセルデコーダーの特徴マップから深度を推定するためのシンプルなヘッド。
-    """
-    def __init__(self, in_channels: int, out_channels: int = 1):
+class UNetDecoderBlock(nn.Module):
+    """UNetデコーダーの1ブロック"""
+    def __init__(self, in_channels, skip_channels, out_channels):
         super().__init__()
-        # 3x3畳み込みと1x1畳み込みを組み合わせたシンプルな構造
-        self.head = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // 2, kernel_size=3, padding=1, bias=False),
-            nn.GroupNorm(32, in_channels // 2),
-            nn.ReLU(),
-            nn.Conv2d(in_channels // 2, out_channels, kernel_size=1, stride=1, padding=0)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels + skip_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
         )
 
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            features (`torch.Tensor`): (batch_size, channels, height, width) 形状の特徴マップ
-        Returns:
-            `torch.Tensor`: (batch_size, 1, height, width) 形状の深度予測
-        """
-        return self.head(features)
+    def forward(self, x, skip_connection):
+        x = self.upsample(x)
+        x = torch.cat([x, skip_connection], dim=1)
+        return self.conv(x)
+
+class UNetDepthEstimationHead(nn.Module):
+    """
+    Mask2Formerのバックボーン出力を受け取るUNetスタイルの深度デコーダー
+    """
+    def __init__(self, encoder_channels, decoder_channels=(256, 128, 64, 32)):
+        super().__init__()
+        # バックボーンの特徴マップは通常、[low_res, ..., high_res] の順なので逆にする
+        encoder_channels = encoder_channels[::-1]
+        
+        in_channels = [encoder_channels[0]] + list(decoder_channels[:-1])
+        skip_channels = list(encoder_channels[1:]) + [0] # 最後のスケールはスキップ接続なし
+        out_channels = list(decoder_channels)
+
+        self.blocks = nn.ModuleList([
+            UNetDecoderBlock(in_ch, skip_ch, out_ch)
+            for in_ch, skip_ch, out_ch in zip(in_channels, skip_channels, out_channels)
+        ])
+        
+        self.final_conv = nn.Conv2d(decoder_channels[-1], 1, kernel_size=1)
+
+    def forward(self, backbone_features: tuple[torch.Tensor, ...]) -> torch.Tensor:
+        # 特徴マップを [high_res, ..., low_res] の順にする
+        features = backbone_features[::-1]
+        x = features[0]
+        skips = features[1:]
+        
+        for i, block in enumerate(self.blocks):
+            skip_connection = skips[i] if i < len(skips) else None
+            # スキップ接続がない場合（最高解像度）は、ゼロテンソルをcatする代わりに何もしない
+            if skip_connection is not None:
+                x = block(x, skip_connection)
+            else: # 最後のブロックではスキップ接続を使わない
+                 x = block.upsample(x)
+                 x = block.conv(x)
+        # 最終的な深度マップを生成
+        depth = self.final_conv(x)
+        # 深度を0-1の範囲にクリップする
+        depth = depth.clamp(0, 1)
+        return depth
+###########################################################################################################
+# for DPTHead
+def _make_fusion_block(features, use_bn):
+    """RefineNetの基本的な融合ブロックを作成する"""
+    return nn.Sequential(
+        nn.Conv2d(features, features, kernel_size=3, padding=1, bias=not use_bn),
+        nn.BatchNorm2d(features) if use_bn else nn.Identity(),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(features, features, kernel_size=3, padding=1, bias=not use_bn),
+        nn.BatchNorm2d(features) if use_bn else nn.Identity(),
+        nn.ReLU(inplace=True),
+    )
+
+class FusionBlock(nn.Module):
+    """特徴マップを融合し、精細化するブロック"""
+    def __init__(self, features, use_bn=False):
+        super().__init__()
+        # 上位層（低解像度）からの入力を処理する部分
+        self.conv1 = nn.Conv2d(features, features, kernel_size=3, padding=1, bias=not use_bn)
+        self.bn1 = nn.BatchNorm2d(features) if use_bn else nn.Identity()
+        
+        # 現在の層（高解像度）の入力を処理する部分
+        self.conv2 = nn.Conv2d(features, features, kernel_size=3, padding=1, bias=not use_bn)
+        self.bn2 = nn.BatchNorm2d(features) if use_bn else nn.Identity()
+        
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, res):
+        # x: 上位層からアップサンプリングされた特徴
+        # res: 現在の層の（スキップ接続された）特徴
+        
+        # サイズを合わせて足し算
+        x_up = torch.nn.functional.interpolate(x, size=res.shape[-2:], mode='bilinear', align_corners=True)
+        fused = self.bn1(self.conv1(x_up)) + self.bn2(self.conv2(res))
+        
+        return self.relu(fused)
+
+class DPTHead(nn.Module):
+    """
+    Mask2Formerのバックボーン出力（2D特徴マップ）に適合させたDPTデコーダー
+    """
+    def __init__(self, encoder_channels, features=256, use_bn=False):
+        super().__init__()
+        
+        # バックボーンからの各特徴マップを、デコーダー内の統一されたチャンネル数 `features` に変換する
+        self.projects = nn.ModuleList([
+            nn.Conv2d(in_ch, features, kernel_size=1, stride=1, padding=0)
+            for in_ch in encoder_channels
+        ])
+        
+        # 4つのスケールを融合するためのRefineNetブロック
+        # DPT/MiDaSでは通常4つのRefineNetブロックを使用
+        num_refinenets = 4
+        self.refinenets = nn.ModuleList([
+            _make_fusion_block(features, use_bn) for _ in range(num_refinenets)
+        ])
+        
+        # 最終的な深度マップを生成する出力層
+        self.output_conv = nn.Sequential(
+            nn.Conv2d(features, features // 2, kernel_size=3, stride=1, padding=1),
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True), # 1/4 -> 1/2スケールへ
+            nn.Conv2d(features // 2, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(True),
+            nn.Conv2d(32, 1, kernel_size=1, stride=1, padding=0),
+            nn.ReLU(True)
+        )
+
+    def forward(self, backbone_features: tuple[torch.Tensor, ...]) -> torch.Tensor:
+        # backbone_features は [scale 1/4, scale 1/8, scale 1/16, scale 1/32] の順と仮定
+        if len(backbone_features) != len(self.projects):
+             raise ValueError(f"Expected {len(self.projects)} features from backbone, but got {len(backbone_features)}")
+
+        # 各スケールの特徴マップを投影 (チャンネル数を統一)
+        projected_features = [proj(feat) for proj, feat in zip(self.projects, backbone_features)]
+        
+        # 低解像度から高解像度へ、トップダウンで特徴を融合
+        layer_4 = projected_features[3] # 1/32
+        layer_3 = projected_features[2] # 1/16
+        layer_2 = projected_features[1] # 1/8
+        layer_1 = projected_features[0] # 1/4
+
+        # RefineNetによる融合パス
+        path_4 = self.refinenets[0](layer_4)
+        path_3 = self.refinenets[1](torch.nn.functional.interpolate(path_4, size=layer_3.shape[-2:], mode='bilinear', align_corners=True) + layer_3)
+        path_2 = self.refinenets[2](torch.nn.functional.interpolate(path_3, size=layer_2.shape[-2:], mode='bilinear', align_corners=True) + layer_2)
+        path_1 = self.refinenets[3](torch.nn.functional.interpolate(path_2, size=layer_1.shape[-2:], mode='bilinear', align_corners=True) + layer_1)
+        
+        # 最終出力を生成
+        out = self.output_conv(path_1)
+        
+        return out
+
+###########################################################################################################
+
 
 
 # =================================================================
 # ===== 3. メインモデルの拡張 ======================================
 # =================================================================
+class Mask2FormerPixelLevelModuleWithDepth(nn.Module):
+    def __init__(self, config: Mask2FormerConfig):
+        super().__init__()
+        self.encoder = load_backbone(config)
+        # セグメンテーション用デコーダー
+        self.decoder = Mask2FormerPixelDecoder(config, feature_channels=self.encoder.channels)
+        # 深度予測用デコーダー
+        self.depth_decoder = DPTHead(encoder_channels=self.encoder.channels)
 
-# `DepthEstimationHead` の定義が
-# このクラスより前にあることを確認してください。
+    def forward(self, pixel_values: Tensor, output_hidden_states: bool = False) -> Mask2FormerPixelLevelModuleWithDepthOutput:
+        # 1. バックボーンからマルチスケール特徴量を取得
+        backbone_output = self.encoder(pixel_values)
+        backbone_features = backbone_output.feature_maps
+
+        # 2. セグメンテーション用のピクセルデコーダーを実行
+        decoder_output = self.decoder(backbone_features, output_hidden_states=output_hidden_states)
+
+        # 3. 深度デコーダーを実行
+        predicted_depth = self.depth_decoder(backbone_features)
+
+        return Mask2FormerPixelLevelModuleWithDepthOutput(
+            encoder_last_hidden_state=backbone_features[-1],
+            encoder_hidden_states=tuple(backbone_features) if output_hidden_states else None,
+            decoder_last_hidden_state=decoder_output.mask_features,
+            decoder_hidden_states=decoder_output.multi_scale_features,
+            predicted_depth=predicted_depth, # <-- 深度出力を追加
+        )
+
+class Mask2FormerModelwithDepth(Mask2FormerPreTrainedModel):
+    main_input_name = "pixel_values"
+
+    def __init__(self, config: Mask2FormerConfig):
+        super().__init__(config)
+        self.pixel_level_module = Mask2FormerPixelLevelModuleWithDepth(config)
+        self.transformer_module = Mask2FormerTransformerModule(in_features=config.feature_size, config=config)
+
+        self.post_init()
+
+    
+    def forward(
+        self,
+        pixel_values: Tensor,
+        pixel_mask: Optional[Tensor] = None,
+        output_hidden_states: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Mask2FormerModelWithDepthOutput:
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        
+        batch_size, _, height, width = pixel_values.shape
+
+        if pixel_mask is None:
+            pixel_mask = torch.ones((batch_size, height, width), device=pixel_values.device)
+
+        # 1. Pixel Level Module を実行
+        pixel_level_module_output = self.pixel_level_module(
+            pixel_values=pixel_values, output_hidden_states=output_hidden_states
+        )
+        
+        # 2. Transformer Module を実行
+        transformer_module_output = self.transformer_module(
+            multi_scale_features=pixel_level_module_output.decoder_hidden_states,
+            mask_features=pixel_level_module_output.decoder_last_hidden_state,
+            output_hidden_states=True,
+            output_attentions=output_attentions,
+        )
+        
+
+        encoder_hidden_states = None
+        pixel_decoder_hidden_states = None
+        transformer_decoder_hidden_states = None
+        transformer_decoder_intermediate_states = None
+
+        if output_hidden_states:
+            encoder_hidden_states = pixel_level_module_output.encoder_hidden_states
+            pixel_decoder_hidden_states = pixel_level_module_output.decoder_hidden_states
+            transformer_decoder_hidden_states = transformer_module_output.hidden_states
+            transformer_decoder_intermediate_states = transformer_module_output.intermediate_hidden_states
+
+        return Mask2FormerModelWithDepthOutput(
+            encoder_last_hidden_state=pixel_level_module_output.encoder_last_hidden_state,
+            pixel_decoder_last_hidden_state=pixel_level_module_output.decoder_last_hidden_state,
+            transformer_decoder_last_hidden_state=transformer_module_output.last_hidden_state,
+            encoder_hidden_states=pixel_level_module_output.encoder_hidden_states if output_hidden_states else None,
+            pixel_decoder_hidden_states=pixel_level_module_output.decoder_hidden_states if output_hidden_states else None,
+            transformer_decoder_hidden_states=transformer_module_output.hidden_states if output_hidden_states else None,
+            transformer_decoder_intermediate_states=transformer_module_output.intermediate_hidden_states,
+            masks_queries_logits=transformer_module_output.masks_queries_logits,
+            attentions=transformer_module_output.attentions,
+            predicted_depth=pixel_level_module_output.predicted_depth, # <-- 深度出力を追加
+        )
 
 @auto_docstring(
     custom_intro="""
@@ -2576,7 +2846,7 @@ class Mask2FormerForUniversalSegmentationWithDepth(Mask2FormerPreTrainedModel):
 
     def __init__(self, config: Mask2FormerConfig):
         super().__init__(config)
-        self.model = Mask2FormerModel(config)
+        self.model = Mask2FormerModelwithDepth(config)
 
         # セグメンテーションのための損失の重み
         self.weight_dict: dict[str, float] = {
@@ -2585,18 +2855,11 @@ class Mask2FormerForUniversalSegmentationWithDepth(Mask2FormerPreTrainedModel):
             "loss_dice": config.dice_weight,
         }
 
-        # セグメンテーションのためのクラス予測器
         self.class_predictor = nn.Linear(config.hidden_dim, config.num_labels + 1)
-
-        # === 深度推定ヘッドの初期化 ===
-        self.depth_head = DepthEstimationHead(config.mask_feature_size, 1)
-        
-        # 損失計算のためのモジュール
         self.criterion = Mask2FormerLoss(config=config, weight_dict=self.weight_dict)
-
-        # === 深度損失のための重み ===
+        
+        # 深度損失の重み (configから読み込むか、デフォルト値を設定)
         self.depth_loss_weight = getattr(config, "depth_loss_weight", 1.0)
-
         self.post_init()
     
     # get_loss_dict, get_loss, get_auxiliary_logits は元のクラスからコピーします
@@ -2660,17 +2923,6 @@ class Mask2FormerForUniversalSegmentationWithDepth(Mask2FormerPreTrainedModel):
             output_attentions=output_attentions,
             return_dict=True,
         )
-        
-        # 2. 深度を予測
-        pixel_decoder_last_hidden_state = outputs.pixel_decoder_last_hidden_state #encoder_last_hidden_stateでもいいかも？
-        depth_logits = self.depth_head(pixel_decoder_last_hidden_state)
-        # 元の画像サイズにアップサンプリング
-        depth_logits = nn.functional.interpolate(
-            depth_logits,
-            size=depth_labels[0].shape[-2:],
-            mode="bilinear",
-            align_corners=False,
-        ).squeeze(1)  # (B, 1, H, W) -> (B, H, W)
 
         # 3. セグメンテーションの出力を計算
         loss, loss_dict, auxiliary_logits = None, None, None
@@ -2683,11 +2935,24 @@ class Mask2FormerForUniversalSegmentationWithDepth(Mask2FormerPreTrainedModel):
         masks_queries_logits = outputs.masks_queries_logits
 
         auxiliary_logits = self.get_auxiliary_logits(class_queries_logits, masks_queries_logits)
-        # 4. 損失を計算
-        total_loss = None
-        segmentation_loss = None
-        depth_loss = None
+        
+        if class_labels is not None:
+            # 予測深度マップをラベルのサイズにリサイズ
+            depth_logits = torch.nn.functional.interpolate(
+                outputs.predicted_depth,
+                size=depth_labels.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(1)
+        else:
+            depth_logits = torch.nn.functional.interpolate(
+                outputs.predicted_depth,
+                size=pixel_values.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            ).squeeze(1)
 
+        # 4. 損失を計算
         if mask_labels is not None and class_labels is not None:
             loss_dict = self.get_loss_dict(
                 masks_queries_logits=masks_queries_logits[-1],
